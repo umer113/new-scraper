@@ -167,42 +167,51 @@ async function saveToExcel(data, startUrl) {
 async function scrapeAllDataForUrl(browser, startUrl) {
     const page = await browser.newPage();
 
+    // Navigate to the start URL
+    await page.goto(startUrl, { waitUntil: 'load', timeout: 0 });
 
-    // Get the number of listings
-    const numberOfListingsText = await page.$eval('header.block-alert h2', el => el.textContent);
-    const numberOfListings = parseInt(numberOfListingsText.match(/\d[\d,.]*/)[0].replace(',', ''), 10);
+    try {
+        // Wait for the element to appear (add a timeout of 10 seconds)
+        await page.waitForSelector('header.block-alert h2', { timeout: 10000 });
+        const numberOfListingsText = await page.$eval('header.block-alert h2', el => el.textContent);
+        const numberOfListings = parseInt(numberOfListingsText.match(/\d[\d,.]*/)[0].replace(',', ''), 10);
 
-    // Calculate the total number of pages
-    const totalPages = Math.ceil(numberOfListings / 20);
+        // Calculate the total number of pages
+        const totalPages = Math.ceil(numberOfListings / 20);
 
-    // Get transaction type
-    const transactionType = await getTransactionType(page);
+        // Get transaction type
+        const transactionType = await getTransactionType(page);
 
-    const allPropertyUrls = [];
-    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-        const pageUrl = `${startUrl}&page=${pageNum}`;
-        console.log(`Scraping page: ${pageUrl}`);
-        const propertyUrls = await scrapePage(page, pageUrl);
-        allPropertyUrls.push(...propertyUrls);
+        const allPropertyUrls = [];
+        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+            const pageUrl = `${startUrl}&page=${pageNum}`;
+            console.log(`Scraping page: ${pageUrl}`);
+            const propertyUrls = await scrapePage(page, pageUrl);
+            allPropertyUrls.push(...propertyUrls);
+        }
+
+        const allPropertyData = [];
+        for (let propertyUrl of allPropertyUrls) {
+            console.log(`Scraping property: ${propertyUrl}`);
+
+            // Add delay of 3 seconds before scraping each property
+            await delay(3000);
+
+            const propertyData = await getPropertyData(page, propertyUrl, transactionType);
+            console.log(propertyData);
+            allPropertyData.push(propertyData);
+        }
+
+        // Save to Excel
+        await saveToExcel(allPropertyData, startUrl);
+
+    } catch (error) {
+        console.error(`Error occurred while scraping URL: ${startUrl}. Details: ${error.message}`);
+    } finally {
+        await page.close();
     }
-
-    const allPropertyData = [];
-    for (let propertyUrl of allPropertyUrls) {
-        console.log(`Scraping property: ${propertyUrl}`);
-
-        // Add delay of 3 seconds before scraping each property
-        await delay(3000);
-
-        const propertyData = await getPropertyData(page, propertyUrl, transactionType);
-        console.log(propertyData);
-        allPropertyData.push(propertyData);
-    }
-
-    // Save to Excel
-    await saveToExcel(allPropertyData, startUrl);
-
-    await page.close();
 }
+
 
 // Main function to scrape all URLs
 (async () => {
