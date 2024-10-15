@@ -1,31 +1,35 @@
-name: Scrape Property Data
+
+name: Puppeteer Scraper
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
-  scrape:
+  run-scraper:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v2
-        with:
-          node-version: '14'  # Specify your Node.js version
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '16'
 
-      - name: Install dependencies
-        run: npm install
+    - name: List files in the directory
+      run: ls -al
 
-      - name: Run scraper
-        run: node your-script-file.js  # Replace with the actual name of your script file
+    - name: Install dependencies
+      run: |
+        npm install
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: property-data
-          path: artifacts/*.xlsx  # Adjust the path if needed
+    - name: Run Puppeteer scraper
+      run: |
+        node main.js  # Ensure this file exists in the root of your repo
+
+    - name: Upload Excel output
+      uses: actions/upload-artifact@v3
+      with:
+        name: scraper-output
+        path: 'output/*.xlsx'  # Changed path to reflect 'output' directory where the Excel file is saved
