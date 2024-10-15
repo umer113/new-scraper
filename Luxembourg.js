@@ -149,8 +149,14 @@ async function saveToExcel(data, startUrl) {
     // Dynamically generate the file name
     const sanitizedFilename = sanitizeFilename(startUrl) + ".xlsx";
 
-    // Dynamically save the file in the same directory as the code
-    const filePath = path.join(__dirname, sanitizedFilename);
+    // Create artifacts directory if it doesn't exist
+    const artifactsDir = path.join(__dirname, 'artifacts');
+    if (!fs.existsSync(artifactsDir)) {
+        fs.mkdirSync(artifactsDir);
+    }
+
+    // Save the file in the artifacts directory
+    const filePath = path.join(artifactsDir, sanitizedFilename);
 
     // Write the Excel file
     await workbook.xlsx.writeFile(filePath);
