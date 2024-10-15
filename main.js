@@ -165,16 +165,8 @@ async function saveToExcel(data, startUrl) {
 }
 // Function to scrape all data for a URL
 async function scrapeAllDataForUrl(browser, startUrl) {
-const browser = await puppeteer.launch({
-        headless: 'new', 
-        args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-blink-features=AutomationControlled",
-            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36",
-        ],
-        defaultViewport: null,
-    });    await page.goto(startUrl, { waitUntil: 'load', timeout: 0 });
+    const page = await browser.newPage();
+
 
     // Get the number of listings
     const numberOfListingsText = await page.$eval('header.block-alert h2', el => el.textContent);
@@ -214,7 +206,16 @@ const browser = await puppeteer.launch({
 
 // Main function to scrape all URLs
 (async () => {
-    const browser = await puppeteer.launch({ headless: false, executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe' });
+const browser = await puppeteer.launch({
+        headless: 'new', 
+        args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-blink-features=AutomationControlled",
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36",
+        ],
+        defaultViewport: null,
+    });
 
     for (let url of urlsToScrape) {
         await scrapeAllDataForUrl(browser, url);
