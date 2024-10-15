@@ -149,21 +149,20 @@ async function saveToExcel(data, startUrl) {
     // Dynamically generate the file name
     const sanitizedFilename = sanitizeFilename(startUrl) + ".xlsx";
 
-    // Create artifacts directory if it doesn't exist
-    const artifactsDir = path.join(__dirname, 'artifacts');
-    if (!fs.existsSync(artifactsDir)) {
-        fs.mkdirSync(artifactsDir);
+    // Create output directory if it doesn't exist
+    const outputDir = path.join(__dirname, 'output');
+    if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir);
     }
 
-    // Save the file in the artifacts directory
-    const filePath = path.join(artifactsDir, sanitizedFilename);
+    // Save the file in the output directory
+    const filePath = path.join(outputDir, sanitizedFilename);
 
     // Write the Excel file
     await workbook.xlsx.writeFile(filePath);
 
     console.log(`Data saved to ${filePath}`);
 }
-
 // Function to scrape all data for a URL
 async function scrapeAllDataForUrl(browser, startUrl) {
     const page = await browser.newPage();
