@@ -165,8 +165,16 @@ async function saveToExcel(data, startUrl) {
 }
 // Function to scrape all data for a URL
 async function scrapeAllDataForUrl(browser, startUrl) {
-    const page = await browser.newPage();
-    await page.goto(startUrl, { waitUntil: 'load', timeout: 0 });
+const browser = await puppeteer.launch({
+        headless: 'new', 
+        args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-blink-features=AutomationControlled",
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.93 Safari/537.36",
+        ],
+        defaultViewport: null,
+    });    await page.goto(startUrl, { waitUntil: 'load', timeout: 0 });
 
     // Get the number of listings
     const numberOfListingsText = await page.$eval('header.block-alert h2', el => el.textContent);
