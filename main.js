@@ -1,221 +1,10 @@
 const puppeteer = require('puppeteer');
+const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
-const ExcelJS = require('exceljs');
 
-// List of URLs to scrape
-const urlsToScrape = [
-    "https://www.athome.lu/srp/?tr=buy&bedrooms_min=2&bedrooms_max=3&srf_min=40&srf_max=70&sort=price_asc&q=faee1a4a&loc=L2-luxembourg&ptypes=new-property"
-    // Add more URLs as needed
-];
-
-// Delay function
-function delay(time) {
-    return new Promise(resolve => setTimeout(resolve, time));
-}
-
-// Function to get latitude and longitude based on the address
-async function getLatLong(address) {
-    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`;
-
-    try {
-        const response = await fetch(url);
-        const data = await response.json();
-
-        if (data && data.length > 0) {
-            const { lat, lon } = data[0];
-            console.log(`Latitude: ${lat}, Longitude: ${lon}`);
-            return { lat, lon };
-        } else {
-            console.error("No results found for the given address.");
-            return { lat: null, lon: null };
-        }
-    } catch (error) {
-        console.error("Error fetching data:", error);
-        return { lat: null, lon: null };
-    }
-}
-
-// Function to sanitize filenames
-const sanitizeFilename = (url) => {
-    return url
-        .replace("https://", "")
-        .replace(/\//g, "_")
-        .replace(/[<>:"/\\|?*&=]/g, "_"); // Replaces invalid characters with an underscore
-};
-
-// Function to get transaction type
-async function getTransactionType(page) {
-    const transactionType = await page.$eval('a.handle', el => el.textContent.trim().toLowerCase());
-    return transactionType;
-}
-
-// Function to get property data
-async function getPropertyData(page, propertyUrl, transactionType) {
-    await page.goto(propertyUrl, { waitUntil: 'load', timeout: 0 });
-
-    // Check if the element exists
-    const nameElement = await page.$('meta[name="og:title"]');
-    let name = null;
-    if (nameElement) {
-        name = await page.$eval('meta[name="og:title"]', el => el.content);
-    } else {
-        console.error(`Element 'meta[name="og:title"]' not found on page ${propertyUrl}`);
-    }
-
-    const description = await page.$eval('div.collapsed p', el => el.textContent.trim(), '').catch(() => null);
-
-    
-    const address = await page.$eval('div.block-localisation-address', el => el.textContent.trim(), '').catch(() => null);
-    const price = await page.$eval('span.property-card-price', el => el.textContent.trim(), '').catch(() => null);
-
-    const characteristics = {};
-    const charItems = await page.$$eval('ul.property-card-info-icons li', items => 
-        items.map(item => {
-            const iconClass = item.querySelector('i').className;
-            const text = item.querySelector('span').textContent.trim();
-            return { iconClass, text };
-        })
-    );
-
-    for (let char of charItems) {
-        if (char.iconClass.includes('icon-agency_area02')) {
-            characteristics['Surface'] = char.text;  // E.g., 'From 30 to 113 m²'
-        } else if (char.iconClass.includes('icon-agency_bed02')) {
-            characteristics['Bedrooms'] = char.text;  // E.g., '0 to 3'
-        } else if (char.iconClass.includes('icon-agency_room')) {
-            characteristics['Rooms'] = char.text;  // E.g., '0 to 2'
-        }
-    }
-
-
-    // Get latitude and longitude based on the address
-    const { lat: latitude, lon: longitude } = await getLatLong(address);
-
-    // Determine property type based on keywords
-    const propertyTypeKeywords = [
-        "maison", "appartement", "chambre", "studio", "penthouse", "duplex", "triplex",
-        "loft", "mansarde", "rez-de-chaussée", "projet neuf", "résidence", "lotissement",
-        "terrain", "garage", "bureau", "commerce", "local", "restaurant", "hôtel",
-        "entrepôt", "exploitation agricole"
-    ];
-    const propertyType = propertyTypeKeywords.find(word => name && name.toLowerCase().includes(word)) || null;
-
-    return {
-        'URL' : propertyUrl,
-        "Name": name,
-        "Description": description, 
-        "Address": address,
-        "Price": price,
-        "Area": characteristics["Surface"] || "",
-        "Characteristics": characteristics,
-        "Property Type": propertyType,
-        "Transaction Type": transactionType,
-        "Latitude": latitude,
-        "Longitude": longitude
-    };
-}
-
-// Function to scrape a page
-async function scrapePage(page, url) {
-    await page.goto(url, { waitUntil: 'load', timeout: 0 });
-
-    const propertyUrls = await page.$$eval('a.property-card-link.property-price', links => links.map(link => link.href));
-    return propertyUrls;
-}
-
-// Function to save Excel file dynamically in the same folder as the script
-async function saveToExcel(data, startUrl) {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Properties');
-
-    worksheet.columns = [
-        { header: 'URL', key: 'URL', width: 30 },
-        { header: 'Name', key: 'Name', width: 30 },
-        { header: 'Description', key: 'Description', width: 50 },
-        { header: 'Address', key: 'Address', width: 30 },
-        { header: 'Price', key: 'Price', width: 15 },
-        { header: 'Area', key: 'Area', width: 15 },
-        { header: 'Characteristics', key: 'Characteristics', width: 50 },
-        { header: 'Property Type', key: 'Property Type', width: 20 },
-        { header: 'Transaction Type', key: 'Transaction Type', width: 20 },
-        { header: 'Latitude', key: 'Latitude', width: 15 },
-        { header: 'Longitude', key: 'Longitude', width: 15 }
-    ];
-
-    // Add data to worksheet
-    data.forEach(row => worksheet.addRow(row));
-
-    // Dynamically generate the file name
-    const sanitizedFilename = sanitizeFilename(startUrl) + ".xlsx";
-
-    // Create output directory if it doesn't exist
-    const outputDir = path.join(__dirname, 'output');
-    if (!fs.existsSync(outputDir)) {
-        fs.mkdirSync(outputDir);
-    }
-
-    // Save the file in the output directory
-    const filePath = path.join(outputDir, sanitizedFilename);
-
-    // Write the Excel file
-    await workbook.xlsx.writeFile(filePath);
-
-    console.log(`Data saved to ${filePath}`);
-}
-// Function to scrape all data for a URL
-async function scrapeAllDataForUrl(browser, startUrl) {
-    const page = await browser.newPage();
-
-    // Navigate to the start URL
-    await page.goto(startUrl, { waitUntil: 'load', timeout: 0 });
-
-    try {
-        // Wait for the element to appear (add a timeout of 10 seconds)
-        await page.waitForSelector('header.block-alert h2', { timeout: 10000 });
-        const numberOfListingsText = await page.$eval('header.block-alert h2', el => el.textContent);
-        const numberOfListings = parseInt(numberOfListingsText.match(/\d[\d,.]*/)[0].replace(',', ''), 10);
-
-        // Calculate the total number of pages
-        const totalPages = Math.ceil(numberOfListings / 20);
-
-        // Get transaction type
-        const transactionType = await getTransactionType(page);
-
-        const allPropertyUrls = [];
-        for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-            const pageUrl = `${startUrl}&page=${pageNum}`;
-            console.log(`Scraping page: ${pageUrl}`);
-            const propertyUrls = await scrapePage(page, pageUrl);
-            allPropertyUrls.push(...propertyUrls);
-        }
-
-        const allPropertyData = [];
-        for (let propertyUrl of allPropertyUrls) {
-            console.log(`Scraping property: ${propertyUrl}`);
-
-            // Add delay of 3 seconds before scraping each property
-            await delay(3000);
-
-            const propertyData = await getPropertyData(page, propertyUrl, transactionType);
-            console.log(propertyData);
-            allPropertyData.push(propertyData);
-        }
-
-        // Save to Excel
-        await saveToExcel(allPropertyData, startUrl);
-
-    } catch (error) {
-        console.error(`Error occurred while scraping URL: ${startUrl}. Details: ${error.message}`);
-    } finally {
-        await page.close();
-    }
-}
-
-
-// Main function to scrape all URLs
 (async () => {
-const browser = await puppeteer.launch({
+   const browser = await puppeteer.launch({
         headless: 'new', 
         args: [
             "--no-sandbox",
@@ -226,9 +15,198 @@ const browser = await puppeteer.launch({
         defaultViewport: null,
     });
 
-    for (let url of urlsToScrape) {
-        await scrapeAllDataForUrl(browser, url);
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
+
+    const baseUrl = 'https://www.kv.ee/search?orderby=ob&deal_type=20';
+    await page.goto(baseUrl);
+
+    const propertyType = await page.evaluate(() => {
+        const activeElement = document.querySelector('div.main-menu a.active');
+        return activeElement ? activeElement.querySelector('span').innerText.trim() : null;
+    });
+
+    await page.waitForSelector('span.large.stronger');
+
+    const totalListings = await page.evaluate(() => {
+        const listingElement = document.querySelector('span.large.stronger');
+        const listingsText = listingElement ? listingElement.innerText : '';
+        const totalListings = listingsText.match(/\d[\d\s]*\d/)[0].replace(/\s/g, '');
+        return totalListings;
+    });
+
+    const listingsPerPage = 50;
+    const totalPages = Math.ceil(totalListings / listingsPerPage);
+    console.log('Total Pages:', totalPages);
+
+    let allPropertyUrls = [];
+
+    for (let pageNum = 0; pageNum < totalPages; pageNum++) {
+        const currentPageUrl = `${baseUrl}&start=${pageNum * listingsPerPage}`;
+        await page.goto(currentPageUrl, { waitUntil: 'networkidle2' });
+        await page.waitForSelector('div.description a[data-key]');
+        
+        const propertyUrls = await page.evaluate(() => {
+            const descriptionDivs = document.querySelectorAll('div.description');
+            const links = [];
+            descriptionDivs.forEach(div => {
+                const aTags = div.querySelectorAll('a[data-key][href]');
+                aTags.forEach(aTag => {
+                    const href = aTag.href;
+                    if (!href.includes('/object/images')) {
+                        links.push(href);
+                    }
+                });
+            });
+            return links;
+        });
+
+        allPropertyUrls = allPropertyUrls.concat(propertyUrls);
+    }
+
+    console.log('Total Property URLs:', allPropertyUrls.length);
+
+    const propertyData = [];
+
+    for (const propertyUrl of allPropertyUrls) {
+        let retries = 3;
+        let success = false;
+
+        while (retries > 0 && !success) {
+            try {
+                await page.goto(propertyUrl, { waitUntil: 'networkidle2', timeout: 300000 });
+                await page.waitForSelector('meta[property="og:title"]', { timeout: 100000 });
+
+                const data = await page.evaluate(() => {
+                    const getMetaContent = (property) => {
+                        const metaTag = document.querySelector(`meta[property="${property}"]`);
+                        return metaTag ? metaTag.content : null;
+                    };
+
+                    const extractCoordinates = () => {
+                        const mapLink = document.querySelector('a[title="Suurem kaart"]');
+                        if (mapLink) {
+                            const href = mapLink.href;
+                            const coordsMatch = href.match(/query=([\d.]+),([\d.]+)/);
+                            if (coordsMatch) {
+                                return {
+                                    latitude: parseFloat(coordsMatch[1]),
+                                    longitude: parseFloat(coordsMatch[2])
+                                };
+                            }
+                        }
+                        return { latitude: null, longitude: null };
+                    };
+
+                    const name = getMetaContent('og:title');
+                    if (name) {
+                        const nameParts = name.split(' - ');
+                        address = nameParts.length > 1 ? nameParts[1] : 'Address not available';
+                    }
+
+
+                    const description = getMetaContent('og:description');
+                    let price = '';
+
+                    const priceOuterDiv = document.querySelector('div.price-outer');
+                    if (priceOuterDiv) {
+                        const newPriceElement = priceOuterDiv.querySelector('div.red + div');
+                        if (newPriceElement) {
+                            price = newPriceElement.innerText.split(' ')[0];
+                        } else {
+                            const priceElement = priceOuterDiv.querySelector('div');
+                            price = priceElement ? priceElement.innerText.split(' ')[0] : '';
+                        }
+                    }
+
+                    const rangePriceElement = document.querySelector('h4.strong');
+                    if (rangePriceElement) {
+                        const priceText = rangePriceElement.innerText.trim().replace(/\s/g, '');
+                        const priceMatch = priceText.match(/(\d+[\d\s]*\d+)€/g);
+                        if (priceMatch && priceMatch.length === 2) {
+                            price = `${priceMatch[0].replace('€', '')} - ${priceMatch[1].replace('€', '')}`;
+                        } else if (priceMatch && priceMatch.length === 1) {
+                            price = priceMatch[0].replace('€', '');
+                        }
+                    }
+
+                    const characteristics = {};
+                    const rows = document.querySelectorAll('table.table-lined tr');
+
+                    rows.forEach(row => {
+                        const th = row.querySelector('th');
+                        const td = row.querySelector('td');
+                        if (th && td) {
+                            const key = th.innerText.trim();
+                            const value = td.innerText.trim();
+                            characteristics[key] = value;
+                        }
+                    });
+
+                    const area = characteristics['Üldpind'] ? characteristics['Üldpind'].replace('m²', '').trim() : null;
+                    const coordinates = extractCoordinates();
+
+                    let transactionType = '';
+                    if (price && parseFloat(price.replace(/[^\d]/g, '')) > 10000) {
+                        transactionType = 'sale';
+                    } else {
+                        transactionType = 'rent';
+                    }
+
+                    return {
+                        propertyUrl: window.location.href,
+                        name,
+                        address,
+                        price,
+                        description,
+                        area,
+                        characteristics: JSON.stringify(characteristics),
+                        latitude: coordinates.latitude,
+                        longitude: coordinates.longitude,
+                        transactionType
+                    };
+                });
+
+                data.propertyType = propertyType;
+
+                propertyData.push(data);
+                console.log(`Data for URL: ${propertyUrl}`, data);
+
+                success = true;
+
+            } catch (error) {
+                console.error(`Error fetching data for URL: ${propertyUrl}. Retries left: ${retries - 1}`);
+                retries--;
+                if (retries === 0) {
+                    console.error(`Failed to fetch data for URL: ${propertyUrl} after 3 attempts.`);
+                }
+            }
+        }
     }
 
     await browser.close();
+
+    const urlParts = new URL(baseUrl);
+    const cleanUrl = `${urlParts.host.replace(/\./g, '_')}_${urlParts.pathname.replace(/\//g, '_')}` + 
+                    (urlParts.search ? `_${urlParts.search.replace(/[\/\\?%*:|"<>]/g, '_')}` : '');
+    const fileName = `${cleanUrl}.xlsx`;
+
+    // Ensure the 'output' directory exists before saving the file
+    const outputDir = path.join(__dirname, 'output');
+    if (!fs.existsSync(outputDir)) {
+        fs.mkdirSync(outputDir);
+    }
+
+    const outputFilePath = path.join(outputDir, fileName);
+
+    // Create an Excel workbook and add a sheet with the specified columns
+    const ws = xlsx.utils.json_to_sheet(propertyData, {
+        header: ['propertyUrl', 'name', 'address', 'price', 'description', 'area', 'characteristics', 'longitude', 'latitude', 'transactionType', 'propertyType']
+    });
+    const wb = xlsx.utils.book_new();
+    xlsx.utils.book_append_sheet(wb, ws, 'Properties');
+    xlsx.writeFile(wb, outputFilePath);
+
+    console.log(`Data saved to ${outputFilePath}`);
+
 })();
