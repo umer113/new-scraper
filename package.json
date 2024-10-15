@@ -9,6 +9,6 @@
   "dependencies": {
     "puppeteer": "^19.0.0",
     "xlsx": "^0.17.0",
-    "exceljs": "^4.3.0"  // Add this line
+    "exceljs": "^4.3.0"  
   }
 }
